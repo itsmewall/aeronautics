@@ -1,0 +1,112 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import griddata
+
+# Dados das asas (siga a ordem)
+asas_data = {
+    'nome': ['E423', 'S1210'],
+    'cl_max': [1.7754, 1.8702],
+    'area': [0.69, 0.69],  # m²
+    'peso': [1.2, 1.2]  # kg
+}
+
+# Dados do motor (fixado o Scorpion)
+motores_data = {
+    'nome': ['Scorpion'],
+    'potencia': [1.017],  # HP
+    'peso': [0.205]  # kg, ajustado para um motor leve e realista
+}
+
+# Essa função irá converter Hp para Watts
+def hp_to_watts(hp):
+    return hp * 745.7
+motores_data['potencia'] = [hp_to_watts(potencia) for potencia in motores_data['potencia']]
+
+# Dados das hélices
+helices_data = {
+    'nome': ['APC 13x4.7-SF', 'APC 15x4-E', 'APC 13x6.5-E', 'APC 13x4-E'],
+    'eficiencia': [4.08, 4.84, 4.83, 4.84],  # ηp
+    'peso': [0.054, 0.045, 0.050, 0.050]  # kg, ajustado para gramas
+}
+
+# convertendo para dataframes (visualização em tabela)
+asas = pd.DataFrame(asas_data)
+motores = pd.DataFrame(motores_data)
+helices = pd.DataFrame(helices_data)
+
+# função para calcular o MTOW
+def calcular_mtow(asa, motor, helice):
+    cl_max = asa['cl_max']
+    area_asa = asa['area']
+    potencia_disponivel = motor['potencia']
+    eficiencia_helice = helice['eficiencia']
+    peso_vazio = asa['peso'] + motor['peso'] + helice['peso']
+    
+    # estimativa do MTOW
+    mtow = (cl_max * area_asa * potencia_disponivel * eficiencia_helice) / peso_vazio
+
+    # Aplicar um fator de correção
+    fator_de_correcao = 0.0001
+    mtow *= fator_de_correcao
+    
+    return mtow
+
+# gerando os resultados com base nas combinações de asas e hélices
+def gerar_resultados(asas, motores, helices):
+    mtow_results = []
+    motor_fixo = motores.iloc[0]  # motor 
+    
+    for asa in asas.iterrows():
+        for helice in helices.iterrows():
+            mtow = calcular_mtow(asa[1], motor_fixo, helice[1])
+            mtow_results.append({
+                'asa': asa[1]['nome'],
+                'helice': helice[1]['nome'],
+                'mtow': mtow,
+                'asa_code': asa[0], 
+                'helice_code': helice[0]  
+            })
+
+    return pd.DataFrame(mtow_results)
+
+df_resultados = gerar_resultados(asas, motores, helices)
+
+# Remover valores NaN resultantes de MTOW irreais
+df_resultados.dropna(inplace=True)
+print(df_resultados)
+
+####################
+# GRÁFICOS ABAIXO: #
+####################
+
+# criando o grid de dados para o gráfico de contorno
+asa_codes = df_resultados['asa_code'].values
+helice_codes = df_resultados['helice_code'].values
+mtow_values = df_resultados['mtow'].values
+
+# interpolação
+xi = np.linspace(asa_codes.min(), asa_codes.max(), 100)
+yi = np.linspace(helice_codes.min(), helice_codes.max(), 100)
+zi = griddata((asa_codes, helice_codes), mtow_values, (xi[None, :], yi[:, None]), method='cubic')
+
+plt.figure(figsize=(10, 8))
+contour = plt.contourf(xi, yi, zi, levels=20, cmap='viridis')
+plt.colorbar(contour, label='MTOW (kg)')
+
+# linhas de contorno
+contour_lines = plt.contour(xi, yi, zi, levels=10, colors='black', linewidths=0.5)
+
+# rótulos de contorno
+plt.clabel(contour_lines, inline=True, fontsize=8)
+
+# configurações dos eixos
+plt.title('Envelope de MTOW: Asa x Hélice', fontsize=16)
+plt.xlabel('Asa', fontsize=14)
+plt.ylabel('Hélice', fontsize=14)
+
+# mostrar os nomes das asas e hélices
+plt.xticks(ticks=np.arange(len(asas_data['nome'])), labels=asas_data['nome'], rotation=45)
+plt.yticks(ticks=np.arange(len(helices_data['nome'])), labels=helices_data['nome'])
+plt.grid(True)
+plt.show()
